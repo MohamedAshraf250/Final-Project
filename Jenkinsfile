@@ -28,8 +28,11 @@ pipeline {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBE_CONFIG_FILE')]) {
                     sh 'export KUBECONFIG=$KUBE_CONFIG_FILE'
                     
-                    // Apply Kubernetes configurations (e.g., deployment, service)
-                    sh 'kubectl apply -f k8s/your-deployment.yaml -n myapp' // Adjust the path and namespace
+                     // Apply the frontend deployment
+                    sh 'kubectl apply -f k8s/frontend-deployment.yaml -n myapp'
+
+                    // Apply the backend deployment
+                    sh 'kubectl apply -f k8s/backend-deployment.yaml -n myapp'
                 }
             }
         }
