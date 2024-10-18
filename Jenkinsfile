@@ -1,74 +1,71 @@
-pipeline {
+                  pipeline {
     agent any
+    triggers {
+        githubPush()
+    }
 
     environment {
-        // Define your environment variables here
-        KUBE_CONFIG = credentials('kubeconfig') // Jenkins credentials ID for kubeconfig
-        ANSIBLE_HOST_KEY_CHECKING = 'False' // Disable host key checking
+        DOCKER_REGISTRY = 'mohamedashraf14'
+        NODE_IMAGE = "${DOCKER_REGISTRY}/back:latest"
+        REACT_IMAGE = "${DOCKER_REGISTRY}/front:latest"
+        // KUBECONFIG = '/path/to/.kube/config'
+        ANSIBLE_INVENTORY = 'ansible/inventories/hosts.yaml'
     }
 
     stages {
-        stage('Checkout') {
+        stage('Checkout Code') {
             steps {
-                // Checkout the code from your repository
-                git 'https://github.com/your-repo/your-project.git' // Change this to your repo URL
+                checkout scm
             }
         }
 
-        stage('Install Dependencies') {
+        stage('Build Node.js Docker Image') {
             steps {
-                // Install any dependencies, e.g., Ansible, if not installed
-                sh 'pip install ansible' // Ensure Ansible is installed
-            }
-        }
-
-        stage('Deploy to Kubernetes') {
-            steps {
-                // Set up kubectl with the kubeconfig
-                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBE_CONFIG_FILE')]) {
-                    sh 'export KUBECONFIG=$KUBE_CONFIG_FILE'
-                    
-                     // Apply the frontend deployment
-                    sh 'kubectl apply -f k8s/frontend-deployment.yaml -n myapp'
-
-                    // Apply the backend deployment
-                    sh 'kubectl apply -f k8s/backend-deployment.yaml -n myapp'
+                script {
+                    docker.build("${NODE_IMAGE}", './backend')
                 }
             }
         }
 
-        stage('Run Ansible Playbook') {
+        stage('Build React Docker Image') {
             steps {
-                // Run the Ansible playbook to configure or manage the deployment
-                sh 'ansible-playbook ansible.yaml'
+                script {
+                    docker.build("${REACT_IMAGE}", './frontend')
+                }
             }
         }
 
-        stage('Post-deployment Validation') {
+        stage('Push Docker Images') {
             steps {
-                // Validate that the deployment was successful, e.g., check service availability
                 script {
-                    def serviceIP = sh(script: "kubectl get svc frontend-service -n myapp -o jsonpath='{.status.loadBalancer.ingress[0].ip}'", returnStdout: true).trim()
-                    def serviceHostname = sh(script: "kubectl get svc frontend-service -n myapp -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'", returnStdout: true).trim()
-
-                    if (serviceIP) {
-                        echo "Service URL: http://${serviceIP}:80"
-                    } else if (serviceHostname) {
-                        echo "Service URL: http://${serviceHostname}:80"
-                    } else {
-                        error "Service is not yet assigned an External IP or Hostname."
+                    docker.withRegistry('https://index.docker.io/v1/', 'docker-credentials') {
+                        docker.image("${NODE_IMAGE}").push()
+                        docker.image("${REACT_IMAGE}").push()
                     }
                 }
             }
         }
+
+        // stage('Deploy to Kubernetes via Ansible') {
+        //     steps {
+        //         ansiblePlaybook(
+        //             playbook: 'ansible/playbooks/deploy-app.yaml',
+        //             inventory: ANSIBLE_INVENTORY,
+        //             extras: "-e 'nodejs_image=${NODE_IMAGE} react_image=${REACT_IMAGE}'"
+        //         )
+        //     }
+        // }
     }
 
     post {
+        always {
+            cleanWs()
+        }
         success {
-            echo 'Deployment succeeded!'
+        slackSend color: 'good', message: 'build success '
         }
         failure {
-            echo 'Deployment failed. Check the logs for details.'
+        slackSend color: 'denger', message: 'build failed'
         }
     }
 }
